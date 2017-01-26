@@ -1,0 +1,52 @@
+---
+title: "Feature Engineering M4 transit data"
+author: "Miles McBain"
+date: "1/20/2017"
+output: html_document
+---
+
+```{r}
+PRAC_HOME <- here::here()
+library(datadr)
+library(sgd)
+library(feather)
+library(knitr)
+library(lubridate)
+library(readr)
+library(dplyr)
+```
+
+```{r}
+m4_data <- read_feather(file.path(PRAC_HOME, "data/m4_data.ftr"))
+kable(m4_data[1:10,])
+
+#standardise transit
+m4_data_std <-  
+  m4_data %>%
+  group_by(route) %>% 
+  mutate(transit_std = (transit - mean(transit, na.rm = TRUE))/sd(transit, na.rm = TRUE))
+
+#Create some features: day, hour, lag1 of current transit time, lead 1 of route in lag 1 of transit, direction of transit.
+
+m4_data_features <-
+  m4_data_std %>%
+  mutate(hour = hour(date),
+         day = day(date),
+         direction = if_else(route <= 40150, true = "West", false = "East")) %>%
+  group_by(route) %>%
+  arrange(date) %>%
+  mutate(transit_tmin1 = lag(transit_std)) %>%
+  group_by(date, direction) %>%
+  arrange(route) %>%
+  mutate(transit_rplus1_tmin1 = lead(transit_tmin1))
+
+#View data
+kable(m4_data_features[1:10,])
+
+#remove NA rows
+m4_data_features_nna <- na.omit(m4_data_features)
+
+write_feather(m4_data_features_nna, "~/m4_data_features_nna.ftr")
+```
+
+

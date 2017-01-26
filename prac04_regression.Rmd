@@ -1,0 +1,127 @@
+---
+title: "Regression Techniques"
+author: "Miles McBain"
+date: "1/19/2017"
+output: html_document
+---
+
+```{r, eval= FALSE}
+install.packages(c("biglm",
+  "feather",
+  "knitr",
+  "lubridate",
+  "modelr"))
+```
+
+
+```{r}
+#PRAC_HOME <- here::here()
+PRAC_HOME <- "/users/ugrad/amsi_705/MSBigData/Practicals/prac04"
+library(biglm)
+library(feather)
+library(knitr)
+library(lubridate)
+library(readr)
+library(caret)
+library(broom)
+library(nnet)
+library(dplyr)
+library(modelr)
+```
+
+#Introduction
+In this practical we'll look at regression approaches to big data. We'll consider a version of the M4 motorway data that has had some features engineering done. We will compare and contrast a few approaches to the problem.
+
+#Regression Approaches
+
+##Load data
+```{r, eval=FALSE}
+m4_data_features <- read_feather(file.path(PRAC_HOME,"/data/m4_data_features_nna.ftr"))
+kable(m4_data_features[1:10,])
+```
+
+Features that have been added: 
+
+    - `transit_std` standardised transit time for route
+    - `hour` hour of the day
+    - `day` day of the week
+    - `direction` direction of travel
+    - `transit_timn1` Transit time for the route in the prior observation interval.
+    - 'transit_rplus1_tmin1' Transit time for the route ahead in the prior observation interval
+    
+The source for these transformations is available in `./dataset_creation.rmd`.
+
+**Discussion**:
+
+* How would you introduce transit time at other lags into the data? 
+
+## Convert to factors
+
+We need to be very specific about which variables are categorical by converting them to factors. The neural network will treat them as numeric otherwise and may have convergence issues.
+
+```{r, eval=FALSE}
+m4_data_features_factors <-
+  m4_data_features %>% mutate(day = as.factor(day),
+                              hour = as.factor(hour),
+                              direction = as.factor(direction))
+```
+
+
+
+
+## Split data
+We split the data into training and test sets so we can compare method accuracy
+```{r, eval = FALSE}
+splits <- createDataPartition(m4_data_features$transit, p=0.75) #75% train, 25% test
+m4_data_features_train <- m4_data_features_factors[splits$Resample1,]
+m4_data_features_test <- m4_data_features_factors[-splits$Resample1,]
+```
+
+#Biglm
+As mentioned in a previous prac `biglm` can perform regression on files larger than memory by processing  
+```{r, eval=FALSE}
+big_lm_fit<-biglm(data = m4_data_features_train,
+              formula = transit_std ~ day + hour + transit_tmin1 + transit_rplus1_tmin1 + direction)
+
+#Get model stats
+summary(big_lm_fit)
+glance(big_lm_fit)
+
+#Score on test set
+rsquare(big_lm_fit, m4_data_features_test)
+rmse(big_lm_fit, m4_data_features_test)
+``` 
+
+**Discussion:** 
+
+* Is this a useful model? Is this expected or unexpected? Why?
+
+## Neural Network
+
+We're going to fit a neural network to do the regression. The DATA_SUBSET variable to stop the fit running for a long time so you can verify it is working first. You will not get a good fit to this large dataset with 10000 observations. Up the observations incrementally so you can get a feel for how long it is going to run on your laptop.
+
+```{r, eval=FALSE}
+DATA_SUBSET = 10000
+nnet_model <- nnet(transit_std ~ day + hour + transit_tmin1 + transit_rplus1_tmin1 + direction,
+                   data=sample_n(m4_data_features_train, DATA_SUBSET),
+                   size=20, 
+                   MaxNWts = 1162)
+rmse(nnet_model, m4_data_features_test)
+rsquare(nnet_model, m4_data_features_test)
+```
+
+*Discussion:*
+
+* Slow fitting times a drawback for neural networks on conventional computers. Is there some ways around this?
+* How did the performance measures compare to lm?
+    - What about if time to fit is taken into consideration?
+
+
+## Extensions
+If you got H2O up on your laptop yesterday, compare the results here with `h2o::h2o.deeplearning()` and `h2o::h2o.glm()`. Remeber you can use `as.h2o(data)` to send a dataframe directly from your R session to the H2O server.
+
+You could also compare the performance of the linear model and neural network with a tree based method from yesterday's lab. If you haven't used a gradient boosted tree yet you could try the `gbm` package in R to do so.
+
+## Challenge (on your laptop)
+For a different kind of data we recommend you try this TensorFlow in R handwritten digit recognition tutorial:https://rstudio.github.io/tensorflow/tutorial_mnist_beginners.html. It's a classification problem, but you can easily adapt it to our regression by having a single output node. Also Reduce the number of hidden layers and nodes. You'll need to follow the TensorFlow installation instructions.
+
